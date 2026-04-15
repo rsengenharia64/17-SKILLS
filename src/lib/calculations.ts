@@ -1,5 +1,5 @@
-import type { DailyEntry, EntryDeviation } from '@/types';
-import { diffHM, parseHMToMinutes, sumHM } from './time';
+import type { DailyEntry, EntryDeviation, TurnoType } from '@/types';
+import { parseHMToMinutes, sumHM } from './time';
 
 export interface EntryComputed {
   carga_horaria_trabalhada: string;
@@ -14,10 +14,16 @@ export interface EntryComputed {
  * Calcula carga horária trabalhada, total de desvios e %.
  *
  * Regra:
- *  janela1 = início → almoço/janta ida
- *  janela2 = reinício → término
- *  carga trabalhada = (janela1 + janela2) - soma desvios
- *  % produtivo = carga_trabalhada / (janela1+janela2)
+ *   janela1 = almoço/janta_ida − início
+ *   janela2 = término − reinício
+ *   bruto   = janela1 + janela2
+ *   desvio  = Σ desvios
+ *   trab.   = max(0, bruto − desvio)
+ *   % prod  = trab / bruto
+ *
+ * Em turnos noturnos (ou quando o fim é numericamente menor que o início
+ * porque passa pela meia-noite), somamos 24h para fechar a janela
+ * corretamente. `diffWithWrap` encapsula essa regra.
  */
 export function computeEntry(
   e: Pick<
@@ -26,14 +32,14 @@ export function computeEntry(
     | 'almoco_janta_ida'
     | 'reinicio_atividade'
     | 'termino_atividade'
-  >,
+  > & Partial<Pick<DailyEntry, 'turno'>>,
   deviations: Array<Pick<EntryDeviation, 'horas'>>,
 ): EntryComputed {
-  const janela1 = diffHM(e.almoco_janta_ida, e.inicio_atividade);
-  const janela2 = diffHM(e.termino_atividade, e.reinicio_atividade);
+  const turno: TurnoType | undefined = e.turno;
+  const janela1 = diffWithWrap(e.almoco_janta_ida, e.inicio_atividade, turno);
+  const janela2 = diffWithWrap(e.termino_atividade, e.reinicio_atividade, turno);
 
-  const totalBrutoMin =
-    parseHMToMinutes(janela1) + parseHMToMinutes(janela2);
+  const totalBrutoMin = janela1 + janela2;
 
   const desvioMin = deviations.reduce(
     (a, d) => a + parseHMToMinutes(d.horas),
@@ -66,6 +72,33 @@ export function computeEntry(
     inconsistente,
     mensagem_inconsistencia,
   };
+}
+
+/**
+ * Diferença em minutos entre dois horários HH:mm. Se o fim é menor que o
+ * início, assume que cruzou a meia-noite (típico do turno noite) e soma 24h.
+ * Retorna 0 quando algum campo é inválido ou a janela "saltaria" mais de 24h.
+ */
+function diffWithWrap(
+  fim: string,
+  inicio: string,
+  turno: TurnoType | undefined,
+): number {
+  const a = parseHMToMinutes(fim);
+  const b = parseHMToMinutes(inicio);
+  if (!fim || !inicio) return 0;
+  let delta = a - b;
+  if (delta < 0) {
+    // Se for turno noite, a janela atravessa a meia-noite. Se não, 0.
+    if (turno === 'Noite') {
+      delta += 24 * 60;
+    } else {
+      delta = 0;
+    }
+  }
+  // Proteção contra entradas absurdas (>24h em uma única janela).
+  if (delta > 24 * 60) return 0;
+  return delta;
 }
 
 function minutesToHMLocal(total: number): string {

@@ -106,6 +106,13 @@ Após o primeiro build / primeira abertura:
 - **Líderes** (13 pré-cadastrados conforme escopo)
   - PIN inicial: `1234` (temporário; troca obrigatória)
 
+> Na primeira entrada o app **exige** a definição de um novo PIN pessoal. Não é
+> possível acessar o restante do sistema com o PIN temporário — mesmo
+> digitando URLs manualmente, o roteador redireciona para `/trocar-pin`.
+>
+> PINs fracos (sequências como `1234`, repetições como `1111`) são bloqueados
+> no momento da troca.
+
 Líderes habilitados (seeds):
 
 1. DEIVID RODRIGUES DOS SANTOS
@@ -172,6 +179,8 @@ trab.   = max(0, bruto − desvio)
 ```
 
 - Recalculado a cada alteração do formulário.
+- **Turno noturno**: quando o fim é menor que o início (ex.: reinício `00:15`
+  após término `04:15`), soma automaticamente 24h para fechar a janela.
 - Badge de **inconsistência** quando `desvio > bruto`.
 
 ## Modelo de dados local

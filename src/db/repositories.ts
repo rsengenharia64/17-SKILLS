@@ -22,14 +22,16 @@ export function assertCanAccess(entry: DailyEntry, user: User): void {
 }
 
 export async function listEntriesForUser(user: User) {
-  if (user.perfil === 'admin') {
-    return db.daily_entries.orderBy('data').reverse().toArray();
-  }
-  return db.daily_entries
-    .where('owner_user_id')
-    .equals(user.id)
-    .reverse()
-    .sortBy('data');
+  const arr =
+    user.perfil === 'admin'
+      ? await db.daily_entries.toArray()
+      : await db.daily_entries
+          .where('owner_user_id')
+          .equals(user.id)
+          .toArray();
+  return arr
+    .filter(e => !e.deleted_at)
+    .sort((a, b) => b.data.localeCompare(a.data));
 }
 
 export async function getEntryWithDeviations(
@@ -70,21 +72,49 @@ export interface UpsertEntryPayload {
   }>;
 }
 
+export interface UpsertOptions {
+  /** Não cria item de sync_queue nem audit_log (usado por autosave). */
+  skipQueue?: boolean;
+}
+
 export async function upsertEntry(
   payload: UpsertEntryPayload,
   user: User,
+  opts: UpsertOptions = {},
 ): Promise<DailyEntry> {
   const device = getDeviceId();
-  const computed = computeEntry(payload, payload.deviations);
+  const computed = computeEntry(
+    { ...payload, turno: payload.turno },
+    payload.deviations,
+  );
+
+  // Duplicidade: mesmo líder + data + turno não pode ter 2 lançamentos.
+  if (!payload.id) {
+    const dup = await db.daily_entries
+      .where('[leader_id+data]')
+      .equals([payload.leader_id, payload.data])
+      .and(x => x.turno === payload.turno && !x.deleted_at)
+      .first();
+    if (dup) {
+      throw new Error(
+        `Já existe lançamento para este líder em ${payload.data} (${payload.turno}). Edite o registro existente.`,
+      );
+    }
+  }
+
+  // Admin criando lançamento vinculado a um líder: o owner é o USUÁRIO do líder.
+  let ownerUserId = user.id;
+  if (user.perfil === 'admin' && !payload.id) {
+    const leader = await db.leaders.get(payload.leader_id);
+    if (leader) ownerUserId = leader.user_id;
+  }
 
   return db.transaction(
     'rw',
-    db.daily_entries,
-    db.entry_deviations,
-    db.sync_queue,
-    db.audit_logs,
+    [db.daily_entries, db.entry_deviations, db.sync_queue, db.audit_logs],
     async () => {
       let entry: DailyEntry;
+      let isCreate = false;
       if (payload.id) {
         const existing = await db.daily_entries.get(payload.id);
         if (!existing) throw new Error('Lançamento não encontrado.');
@@ -116,10 +146,11 @@ export async function upsertEntry(
         };
         await db.daily_entries.put(entry);
       } else {
+        isCreate = true;
         entry = {
           id: uuid(),
           leader_id: payload.leader_id,
-          owner_user_id: user.id,
+          owner_user_id: ownerUserId,
           data: payload.data,
           semana: weekLabel(payload.data),
           turno: payload.turno,
@@ -169,29 +200,47 @@ export async function upsertEntry(
         });
       }
 
-      await db.sync_queue.add({
-        entity_name: 'daily_entries',
-        entity_id: entry.id,
-        acao: payload.id ? 'update' : 'create',
-        payload: JSON.stringify({
+      if (!opts.skipQueue) {
+        // Consolida fila: se já existe item pendente para essa entity, atualiza-o
+        // em vez de empilhar vários. Evita explosão da sync_queue pelo autosave.
+        const existingQ = await db.sync_queue
+          .where('entity_id')
+          .equals(entry.id)
+          .and(q => q.status === 'pending')
+          .first();
+        const qPayload = JSON.stringify({
           entry,
           deviations: payload.deviations,
-        }),
-        status: 'pending',
-        tentativas: 0,
-        created_at: nowIso(),
-        updated_at: nowIso(),
-      });
+        });
+        if (existingQ?.id) {
+          await db.sync_queue.update(existingQ.id, {
+            payload: qPayload,
+            acao: existingQ.acao === 'create' ? 'create' : 'update',
+            updated_at: nowIso(),
+          });
+        } else {
+          await db.sync_queue.add({
+            entity_name: 'daily_entries',
+            entity_id: entry.id,
+            acao: isCreate ? 'create' : 'update',
+            payload: qPayload,
+            status: 'pending',
+            tentativas: 0,
+            created_at: nowIso(),
+            updated_at: nowIso(),
+          });
+        }
 
-      await db.audit_logs.add({
-        user_id: user.id,
-        entidade: 'daily_entries',
-        entidade_id: entry.id,
-        acao: payload.id ? 'update' : 'create',
-        valor_novo: JSON.stringify(entry),
-        device_id: device,
-        created_at: nowIso(),
-      });
+        await db.audit_logs.add({
+          user_id: user.id,
+          entidade: 'daily_entries',
+          entidade_id: entry.id,
+          acao: isCreate ? 'create' : 'update',
+          valor_novo: JSON.stringify(entry),
+          device_id: device,
+          created_at: nowIso(),
+        });
+      }
 
       return entry;
     },

@@ -10,8 +10,12 @@ export function BackupAdmin() {
 
   const onExport = async () => {
     setStatus('Gerando backup…');
-    await downloadBackup(user);
-    setStatus('Backup gerado.');
+    try {
+      await downloadBackup(user);
+      setStatus('✓ Backup gerado e baixado.');
+    } catch (e: any) {
+      setStatus(`⚠ Falha ao gerar backup: ${e?.message ?? e}`);
+    }
   };
 
   const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -25,12 +29,12 @@ export function BackupAdmin() {
     const r = await restoreBackup(text, { replaceAll: replace });
     if (r.ok) {
       setStatus(
-        `Restauração concluída: ${Object.entries(r.counts)
+        `✓ Restauração concluída · ${Object.entries(r.counts)
           .map(([k, v]) => `${k}:${v}`)
           .join(' · ')}`,
       );
     } else {
-      setStatus(`Erro: ${r.error}`);
+      setStatus(`⚠ Erro na restauração: ${r.error}`);
     }
     if (inputRef.current) inputRef.current.value = '';
   };

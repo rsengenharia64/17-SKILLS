@@ -66,7 +66,7 @@ export default function App() {
         <Route
           path="/trocar-pin"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute allowTempPin>
               <ChangePinScreen />
             </ProtectedRoute>
           }

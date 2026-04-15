@@ -29,10 +29,11 @@ export interface DashboardData {
 }
 
 export function useDashboardData(
-  user: User,
+  user: User | null | undefined,
   filters: DashboardFilters,
 ): DashboardData | undefined {
   return useLiveQuery(async () => {
+    if (!user) return undefined;
     const leaders = await db.leaders.toArray();
     const locations = await db.locations.toArray();
     const deviationTypes = await db.deviation_types.toArray();
@@ -148,5 +149,5 @@ export function useDashboardData(
         desvioRecorrente,
       },
     };
-  }, [user.id, user.perfil, JSON.stringify(filters)]);
+  }, [user?.id, user?.perfil, JSON.stringify(filters)]);
 }

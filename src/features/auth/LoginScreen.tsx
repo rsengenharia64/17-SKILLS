@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '@/db/database';
@@ -7,19 +7,31 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
 import { Card, CardBody } from '@/components/ui/Card';
+import { Badge } from '@/components/ui/Badge';
 import { isValidPinFormat } from '@/lib/pin';
 
 export function LoginScreen() {
   const nav = useNavigate();
   const login = useAuthStore(s => s.login);
+  const session = useAuthStore(s => s.session);
   const users = useLiveQuery(
     () => db.users.filter(u => u.ativo).sortBy('nome'),
     [],
   );
   const [userId, setUserId] = useState<string>('');
   const [pin, setPin] = useState('');
+  const [showPin, setShowPin] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Evita que um usuário logado caia na tela de login digitando /login manualmente.
+  useEffect(() => {
+    if (session) {
+      nav(session.user.pin_temporario ? '/trocar-pin' : '/app', {
+        replace: true,
+      });
+    }
+  }, [session, nav]);
 
   useEffect(() => {
     if (users && users.length > 0 && !userId) {
@@ -27,6 +39,11 @@ export function LoginScreen() {
       setUserId((firstLeader ?? users[0]).id);
     }
   }, [users, userId]);
+
+  const selectedUser = useMemo(
+    () => users?.find(u => u.id === userId),
+    [users, userId],
+  );
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -36,6 +53,7 @@ export function LoginScreen() {
     setLoading(true);
     try {
       const { mustChangePin } = await login(userId, pin);
+      setPin('');
       nav(mustChangePin ? '/trocar-pin' : '/app', { replace: true });
     } catch (err: any) {
       setError(err?.message ?? 'Falha no login.');
@@ -58,11 +76,15 @@ export function LoginScreen() {
         </div>
         <Card>
           <CardBody>
-            <form onSubmit={submit} className="flex flex-col gap-3">
+            <form onSubmit={submit} className="flex flex-col gap-3" autoComplete="off">
               <Select
                 label="Usuário"
                 value={userId}
-                onChange={e => setUserId(e.target.value)}
+                onChange={e => {
+                  setUserId(e.target.value);
+                  setPin('');
+                  setError(null);
+                }}
                 required
               >
                 {!users && <option>Carregando…</option>}
@@ -76,16 +98,39 @@ export function LoginScreen() {
                   </option>
                 ))}
               </Select>
-              <Input
-                label="PIN"
-                inputMode="numeric"
-                maxLength={8}
-                pattern="\d*"
-                value={pin}
-                autoFocus
-                onChange={e => setPin(e.target.value.replace(/\D/g, ''))}
-                placeholder="••••"
-              />
+
+              {selectedUser?.pin_temporario && (
+                <div className="text-[11px] flex items-center gap-2">
+                  <Badge tone="warning">PIN temporário</Badge>
+                  <span className="text-white/60">
+                    Será exigida a troca no primeiro acesso.
+                  </span>
+                </div>
+              )}
+
+              <div className="relative">
+                <Input
+                  label="PIN"
+                  inputMode="numeric"
+                  type={showPin ? 'text' : 'password'}
+                  maxLength={8}
+                  pattern="\d*"
+                  value={pin}
+                  autoFocus
+                  autoComplete="one-time-code"
+                  onChange={e => setPin(e.target.value.replace(/\D/g, ''))}
+                  placeholder="••••"
+                />
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  className="absolute right-2 top-[30px] text-[11px] text-white/60 hover:text-white px-2 py-1"
+                  onClick={() => setShowPin(v => !v)}
+                >
+                  {showPin ? 'Ocultar' : 'Mostrar'}
+                </button>
+              </div>
+
               {error && (
                 <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/30 rounded-md p-2">
                   {error}
@@ -99,9 +144,9 @@ export function LoginScreen() {
               >
                 Entrar
               </Button>
-              <div className="text-[11px] text-white/50 text-center mt-1">
-                PIN padrão líderes: <span className="font-mono">1234</span> ·
-                Admin: <span className="font-mono">0000</span>
+              <div className="text-[11px] text-white/50 text-center mt-1 leading-relaxed">
+                PIN padrão líderes: <span className="font-mono">1234</span> · Admin:{' '}
+                <span className="font-mono">0000</span>
                 <br />
                 (Troca obrigatória no primeiro acesso)
               </div>

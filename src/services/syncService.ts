@@ -65,9 +65,11 @@ export async function runSync(user: User): Promise<SyncReport> {
       const parsed = item.payload ? JSON.parse(item.payload) : null;
       const entry = parsed?.entry;
 
-      // Isolamento: líder só envia registros próprios.
-      if (user.perfil !== 'admin' && entry && entry.owner_user_id !== user.id) {
-        continue;
+      // Isolamento duplo: confirma pelo banco (não apenas pelo payload).
+      if (user.perfil !== 'admin') {
+        const dbEntry = await db.daily_entries.get(item.entity_id);
+        if (dbEntry && dbEntry.owner_user_id !== user.id) continue;
+        if (entry && entry.owner_user_id !== user.id) continue;
       }
 
       await db.sync_queue.update(item.id!, {
@@ -76,20 +78,38 @@ export async function runSync(user: User): Promise<SyncReport> {
         ultima_tentativa_at: new Date().toISOString(),
       });
 
-      const res = await fetch(cfg.endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          token: cfg.token ?? '',
-          actor_user_id: user.id,
-          actor_nome: user.nome,
-          entity: item.entity_name,
-          entity_id: item.entity_id,
-          action: item.acao,
-          payload: parsed,
-        }),
-      });
+      // Timeout defensivo de 15s por item.
+      const ctrl = new AbortController();
+      const timer = window.setTimeout(() => ctrl.abort(), 15_000);
+      let res: Response;
+      try {
+        res = await fetch(cfg.endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            token: cfg.token ?? '',
+            actor_user_id: user.id,
+            actor_nome: user.nome,
+            entity: item.entity_name,
+            entity_id: item.entity_id,
+            action: item.acao,
+            payload: parsed,
+          }),
+          signal: ctrl.signal,
+        });
+      } finally {
+        window.clearTimeout(timer);
+      }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      // Tenta parsear a resposta para validar ok=true.
+      try {
+        const body = (await res.clone().json()) as { ok?: boolean; error?: string };
+        if (body && body.ok === false) {
+          throw new Error(body.error || 'remoto retornou ok=false');
+        }
+      } catch {
+        // Ignora falha de parse — o Apps Script pode retornar texto.
+      }
 
       await db.sync_queue.update(item.id!, {
         status: 'done',
@@ -102,10 +122,11 @@ export async function runSync(user: User): Promise<SyncReport> {
       sent += 1;
     } catch (e: any) {
       failed += 1;
-      errors.push(e?.message ?? 'erro desconhecido');
+      const msg = e?.name === 'AbortError' ? 'timeout' : e?.message ?? 'erro desconhecido';
+      errors.push(msg);
       await db.sync_queue.update(item.id!, {
         status: 'error',
-        erro: e?.message ?? 'erro',
+        erro: msg,
         updated_at: new Date().toISOString(),
       });
     }

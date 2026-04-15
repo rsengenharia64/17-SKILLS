@@ -14,7 +14,8 @@ import { parseHMToMinutes } from '@/lib/time';
 type Agrupador = 'dia' | 'semana' | 'mes' | 'lider' | 'local' | 'turno' | 'tipo';
 
 export function ReportsScreen() {
-  const user = useAuthStore(s => s.session!.user);
+  const session = useAuthStore(s => s.session);
+  const user = session?.user;
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [leaderId, setLeaderId] = useState('');
@@ -27,6 +28,7 @@ export function ReportsScreen() {
   const devTypes = useLiveQuery(() => db.deviation_types.toArray(), []);
 
   const entries = useLiveQuery(async () => {
+    if (!user) return [] as DailyEntry[];
     let arr = await db.daily_entries.toArray();
     arr = arr.filter(e => !e.deleted_at);
     if (user.perfil !== 'admin') arr = arr.filter(e => e.owner_user_id === user.id);
@@ -36,7 +38,7 @@ export function ReportsScreen() {
     if (locationId) arr = arr.filter(e => e.local_id === locationId);
     if (turno) arr = arr.filter(e => e.turno === turno);
     return arr;
-  }, [user.id, user.perfil, from, to, leaderId, locationId, turno]);
+  }, [user?.id, user?.perfil, from, to, leaderId, locationId, turno]);
 
   const deviations = useLiveQuery(async () => {
     if (!entries || entries.length === 0) return [] as EntryDeviation[];
@@ -82,6 +84,8 @@ export function ReportsScreen() {
     });
     doc.save(`cbsi-relatorio-${new Date().toISOString().slice(0, 10)}.pdf`);
   };
+
+  if (!user) return null;
 
   return (
     <div className="flex flex-col gap-4">

@@ -6,8 +6,13 @@
 
 export type HM = string; // "HH:mm"
 
+/** HH:mm com horas 0..23. Para somas/desvios que passam de 24h use isValidDurationHM. */
 export function isValidHM(v: string): boolean {
-  return /^([0-1]\d|2[0-3]|\d{1,3}):[0-5]\d$/.test(v);
+  return /^([0-1]\d|2[0-3]):[0-5]\d$/.test(v);
+}
+/** Duração HH:mm sem limite de 24h (usado por desvios somados). */
+export function isValidDurationHM(v: string): boolean {
+  return /^\d{1,3}:[0-5]\d$/.test(v);
 }
 
 export function parseHMToMinutes(v: string | undefined | null): number {

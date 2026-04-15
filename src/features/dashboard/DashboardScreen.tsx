@@ -38,9 +38,11 @@ const COLORS = [
 ];
 
 export function DashboardScreen() {
-  const user = useAuthStore(s => s.session!.user);
+  const session = useAuthStore(s => s.session);
   const [filters, setFilters] = useState<DashboardFilters>({});
-  const data = useDashboardData(user, filters);
+  const data = useDashboardData(session?.user as any, filters);
+  if (!session) return null;
+  const user = session.user;
 
   if (!data) {
     return (

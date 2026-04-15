@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '@/db/database';
 import { useAuthStore } from '@/store/authStore';
@@ -10,9 +10,14 @@ import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { formatBr } from '@/lib/time';
+import { cn } from '@/lib/cn';
 
 export function HistoryScreen() {
-  const user = useAuthStore(s => s.session!.user);
+  const session = useAuthStore(s => s.session);
+  const [sp] = useSearchParams();
+  const foco = sp.get('foco');
+  const user = session?.user;
+
   const [search, setSearch] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -22,6 +27,7 @@ export function HistoryScreen() {
   const leaders = useLiveQuery(() => db.leaders.toArray(), []);
   const locations = useLiveQuery(() => db.locations.toArray(), []);
   const entries = useLiveQuery(async () => {
+    if (!user) return [];
     let arr = await db.daily_entries.toArray();
     arr = arr.filter(e => !e.deleted_at);
     if (user.perfil !== 'admin') arr = arr.filter(e => e.owner_user_id === user.id);
@@ -30,7 +36,7 @@ export function HistoryScreen() {
     if (leaderId) arr = arr.filter(e => e.leader_id === leaderId);
     if (turno) arr = arr.filter(e => e.turno === turno);
     return arr.sort((a, b) => b.data.localeCompare(a.data));
-  }, [user.id, user.perfil, from, to, leaderId, turno]);
+  }, [user?.id, user?.perfil, from, to, leaderId, turno]);
 
   const filtered = useMemo(() => {
     if (!entries) return [];
@@ -43,6 +49,16 @@ export function HistoryScreen() {
         e.data.includes(q),
     );
   }, [entries, search]);
+
+  // Scroll até o registro focado quando vier de "salvar lançamento".
+  const focoRef = useRef<HTMLTableRowElement | null>(null);
+  useEffect(() => {
+    if (!foco || !filtered.length) return;
+    const row = focoRef.current;
+    if (row) row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [foco, filtered]);
+
+  if (!user) return null;
 
   return (
     <div className="flex flex-col gap-4">
@@ -67,6 +83,12 @@ export function HistoryScreen() {
         </CardBody>
       </Card>
 
+      {foco && (
+        <div className="text-xs text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded-md p-2">
+          ✓ Lançamento salvo. Destacado na lista abaixo.
+        </div>
+      )}
+
       <Card>
         <CardBody className="p-0">
           {!filtered || filtered.length === 0 ? (
@@ -83,7 +105,7 @@ export function HistoryScreen() {
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead className="bg-surface-soft text-white/70 text-xs">
+                <thead className="bg-surface-soft text-white/70 text-xs sticky top-0">
                   <tr>
                     <th className="text-left px-3 py-2">Data</th>
                     <th className="text-left px-3 py-2">Líder</th>
@@ -101,8 +123,16 @@ export function HistoryScreen() {
                   {filtered.map(e => {
                     const leader = leaders?.find(l => l.id === e.leader_id);
                     const local = locations?.find(l => l.id === e.local_id);
+                    const isFoco = e.id === foco;
                     return (
-                      <tr key={e.id} className="border-t border-surface-border hover:bg-white/5">
+                      <tr
+                        key={e.id}
+                        ref={isFoco ? focoRef : undefined}
+                        className={cn(
+                          'border-t border-surface-border hover:bg-white/5 transition',
+                          isFoco && 'bg-emerald-500/10 ring-1 ring-emerald-500/40',
+                        )}
+                      >
                         <td className="px-3 py-2 whitespace-nowrap">
                           <div className="font-medium">{formatBr(e.data)}</div>
                           <div className="text-[11px] text-white/50">{e.semana}</div>

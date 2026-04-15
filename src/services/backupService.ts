@@ -86,7 +86,21 @@ export async function restoreBackup(
           await db.daily_entries.clear();
           await db.entry_deviations.clear();
         }
-        if (d.users) await db.users.bulkPut(d.users);
+        if (d.users) {
+          // Não sobrescreve pin_hash '***' (sanitizado em backup de líder).
+          // Mantém o pin atual do usuário local se existir.
+          for (const u of d.users) {
+            if (u.pin_hash === '***') {
+              const cur = await db.users.get(u.id);
+              if (cur) {
+                await db.users.put({ ...u, pin_hash: cur.pin_hash });
+              }
+              // Se não existe localmente, ignora — não é possível logar sem hash.
+              continue;
+            }
+            await db.users.put(u);
+          }
+        }
         if (d.leaders) await db.leaders.bulkPut(d.leaders);
         if (d.locations) await db.locations.bulkPut(d.locations);
         if (d.operation_standards) await db.operation_standards.bulkPut(d.operation_standards);

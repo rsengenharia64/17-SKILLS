@@ -28,7 +28,12 @@ export function DailyEntryScreen() {
   const { id } = useParams();
   const [sp] = useSearchParams();
   const session = useAuthStore(s => s.session);
-  const user = session!.user;
+  if (!session) {
+    // Fallback defensivo — ProtectedRoute cobre mas garante ausência de crash.
+    return null;
+  }
+  const user = session.user;
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const leaders = useLiveQuery(
     async () => {
@@ -152,7 +157,10 @@ export function DailyEntryScreen() {
   }, [loadedOnce]);
 
   const values = watch();
-  const computed = computeEntry(values, values.deviations ?? []);
+  const computed = computeEntry(
+    { ...values, turno: values.turno },
+    values.deviations ?? [],
+  );
 
   // Autosave do rascunho em localStorage (não gera registro oficial).
   useAutosave(
@@ -164,7 +172,7 @@ export function DailyEntryScreen() {
     { delay: 600, enabled: !id && loadedOnce },
   );
 
-  // Autosave real no IndexedDB em edição.
+  // Autosave real no IndexedDB em edição (sem inflar sync_queue).
   useAutosave(
     values,
     async v => {
@@ -195,41 +203,50 @@ export function DailyEntryScreen() {
           })),
         },
         user,
+        { skipQueue: true },
       );
     },
-    { delay: 900, enabled: !!id && loadedOnce },
+    { delay: 1200, enabled: !!id && loadedOnce },
   );
 
   const onSubmit = handleSubmit(async v => {
-    if (!v.leader_id) return;
-    const saved = await upsertEntry(
-      {
-        id: v.id,
-        leader_id: v.leader_id,
-        data: v.data,
-        turno: v.turno,
-        local_id: v.local_id,
-        efetivo: Number(v.efetivo) || 0,
-        dss_canteiro: v.dss_canteiro,
-        chegada_frente_trabalho: v.chegada_frente_trabalho,
-        abertura_pts: v.abertura_pts,
-        inicio_atividade: v.inicio_atividade,
-        almoco_janta_ida: v.almoco_janta_ida,
-        reinicio_atividade: v.reinicio_atividade,
-        termino_atividade: v.termino_atividade,
-        observacoes: v.observacoes,
-        deviations: (v.deviations ?? []).map((d, idx) => ({
-          id: d.id,
-          sequencia: idx + 1,
-          horas: d.horas,
-          deviation_type_id: d.deviation_type_id,
-          observacao: d.observacao,
-        })),
-      },
-      user,
-    );
-    localStorage.removeItem(DRAFT_KEY(user.id));
-    nav(`/app/historico?foco=${saved.id}`);
+    setSubmitError(null);
+    if (!v.leader_id) {
+      setSubmitError('Selecione um líder antes de salvar.');
+      return;
+    }
+    try {
+      const saved = await upsertEntry(
+        {
+          id: v.id,
+          leader_id: v.leader_id,
+          data: v.data,
+          turno: v.turno,
+          local_id: v.local_id,
+          efetivo: Number(v.efetivo) || 0,
+          dss_canteiro: v.dss_canteiro,
+          chegada_frente_trabalho: v.chegada_frente_trabalho,
+          abertura_pts: v.abertura_pts,
+          inicio_atividade: v.inicio_atividade,
+          almoco_janta_ida: v.almoco_janta_ida,
+          reinicio_atividade: v.reinicio_atividade,
+          termino_atividade: v.termino_atividade,
+          observacoes: v.observacoes,
+          deviations: (v.deviations ?? []).map((d, idx) => ({
+            id: d.id,
+            sequencia: idx + 1,
+            horas: d.horas,
+            deviation_type_id: d.deviation_type_id,
+            observacao: d.observacao,
+          })),
+        },
+        user,
+      );
+      localStorage.removeItem(DRAFT_KEY(user.id));
+      nav(`/app/historico?foco=${saved.id}`);
+    } catch (err: any) {
+      setSubmitError(err?.message ?? 'Falha ao salvar.');
+    }
   });
 
   const applyStandard = (standardId: string) => {
@@ -277,7 +294,9 @@ export function DailyEntryScreen() {
                 label="Líder"
                 value={field.value}
                 onChange={field.onChange}
-                disabled={user.perfil !== 'admin' && !!id}
+                // Líder comum: sempre trava no próprio registro.
+                // Admin editando: mantém líder original.
+                disabled={user.perfil !== 'admin' || !!id}
                 error={errors.leader_id?.message}
               >
                 {leaders?.map(l => (
@@ -562,6 +581,15 @@ export function DailyEntryScreen() {
           />
         </CardBody>
       </Card>
+
+      {(submitError || computed.mensagem_inconsistencia) && (
+        <div className="text-xs text-red-300 bg-red-500/10 border border-red-500/30 rounded-md p-3 flex flex-col gap-1">
+          {submitError && <span>⚠ {submitError}</span>}
+          {computed.mensagem_inconsistencia && (
+            <span>⚠ {computed.mensagem_inconsistencia}</span>
+          )}
+        </div>
+      )}
 
       <div className="flex flex-col sm:flex-row gap-2 justify-end">
         {id && user && (
