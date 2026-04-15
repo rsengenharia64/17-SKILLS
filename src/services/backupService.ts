@@ -71,14 +71,16 @@ export async function restoreBackup(
     const d = parsed.data;
     await db.transaction(
       'rw',
-      db.users,
-      db.leaders,
-      db.locations,
-      db.operation_standards,
-      db.deviation_types,
-      db.daily_entries,
-      db.entry_deviations,
-      db.app_settings,
+      [
+        db.users,
+        db.leaders,
+        db.locations,
+        db.operation_standards,
+        db.deviation_types,
+        db.daily_entries,
+        db.entry_deviations,
+        db.app_settings,
+      ],
       async () => {
         if (opts.replaceAll) {
           await db.daily_entries.clear();

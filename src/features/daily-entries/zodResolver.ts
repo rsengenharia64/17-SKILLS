@@ -9,7 +9,7 @@ export function zodResolver<
   TSchema extends ZodTypeAny,
   TValues extends FieldValues = z.infer<TSchema>,
 >(schema: TSchema): Resolver<TValues> {
-  return (async values => {
+  const resolver = async (values: TValues) => {
     const result = schema.safeParse(values);
     if (result.success) {
       return { values: result.data as TValues, errors: {} };
@@ -18,7 +18,8 @@ export function zodResolver<
       values: {} as TValues,
       errors: toHookFormErrors(result.error),
     };
-  }) as Resolver<TValues>;
+  };
+  return resolver as unknown as Resolver<TValues>;
 }
 
 function toHookFormErrors(error: ZodError): Record<string, unknown> {
