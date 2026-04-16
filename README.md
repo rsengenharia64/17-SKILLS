@@ -98,20 +98,32 @@ Requisitos do host:
 
 ## Credenciais iniciais
 
-Após o primeiro build / primeira abertura:
+Na primeira abertura do app em um dispositivo **zerado**, o seed gera
+automaticamente **PINs temporários aleatórios e individuais** (4 dígitos) para
+cada usuário — administrador + 13 líderes. Não existe PIN padrão compartilhado
+(nada de `1234` ou `0000` para todo mundo).
 
-- **Administrador**
-  - Usuário: `Administrador`
-  - PIN inicial: `0000` (temporário; troca obrigatória)
-- **Líderes** (13 pré-cadastrados conforme escopo)
-  - PIN inicial: `1234` (temporário; troca obrigatória)
+Fluxo de configuração inicial:
 
-> Na primeira entrada o app **exige** a definição de um novo PIN pessoal. Não é
-> possível acessar o restante do sistema com o PIN temporário — mesmo
-> digitando URLs manualmente, o roteador redireciona para `/trocar-pin`.
+1. **Abrir o app pela primeira vez.** O login exibe um banner âmbar
+   "🔐 Primeira configuração deste dispositivo" com o PIN do **Administrador**.
+2. **Entrar como Administrador** com o PIN mostrado.
+3. O sistema exige a **troca imediata do PIN** (tela `/trocar-pin`, não dá pra
+   pular). PINs fracos (`1234`, `1111`, sequências, repetições) são rejeitados.
+4. Após a troca, o banner do login some. Acesse **Administração → Líderes**.
+5. No topo aparece o painel **"🔐 PINs iniciais — distribuir aos líderes"**
+   com a lista de *(nome, PIN)* de cada líder. Copie individualmente e entregue
+   **fora do app** (impresso, mensagem privada).
+6. Cada líder recebe o seu PIN, entra, e o sistema força a troca no primeiro
+   acesso. A linha some da lista automaticamente.
+7. Quando todos tiverem trocado (ou o admin clicar "Já distribuí, limpar"), o
+   painel desaparece permanentemente e a lista é removida do banco.
+
+> **Em nenhum momento o PIN em claro é enviado para um servidor.** A base só
+> guarda hashes SHA-256 com salt. Os PINs temporários ficam em IndexedDB
+> local apenas até serem distribuídos — e são removidos depois.
 >
-> PINs fracos (sequências como `1234`, repetições como `1111`) são bloqueados
-> no momento da troca.
+> PINs fracos são bloqueados pela tela de troca.
 
 Líderes habilitados (seeds):
 

@@ -3,6 +3,7 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import { db } from '@/db/database';
 import { hashPin, verifyPin } from '@/lib/pin';
 import type { Leader, SessionData, User } from '@/types';
+import { clearAdminBootstrapPin } from '@/services/bootstrapPins';
 
 const IDLE_MS = 15 * 60 * 1000; // 15 minutos
 
@@ -87,6 +88,10 @@ export const useAuthStore = create<AuthState>()(
           pin_temporario: false,
           updated_at: new Date().toISOString(),
         });
+        // Se quem trocou foi o admin, limpa o PIN de bootstrap da tela de login.
+        if (user.perfil === 'admin') {
+          await clearAdminBootstrapPin();
+        }
         const updated = await db.users.get(user.id);
         if (updated) {
           set({

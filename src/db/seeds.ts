@@ -7,7 +7,7 @@ import type {
   OperationStandard,
   User,
 } from '@/types';
-import { hashPin } from '@/lib/pin';
+import { generateTempPin, hashPin } from '@/lib/pin';
 import { slugify } from '@/lib/slug';
 import { getDeviceId, uuid } from '@/lib/uuid';
 import { db } from './database';
@@ -164,7 +164,23 @@ export async function ensureSeeds(): Promise<void> {
 
 async function seedUsersAndLeaders() {
   const nowIso = now();
-  const adminPin = '0000';
+
+  // Gera PINs temporários INDIVIDUAIS (aleatórios de 4 dígitos) para cada usuário.
+  // Não existe mais "PIN padrão compartilhado" — cada líder recebe o seu.
+  // Todos os PINs são mostrados uma única vez em "Administração → Líderes → PINs iniciais",
+  // e o admin enxerga o seu próprio na tela de login (banner "primeira configuração")
+  // até trocá-lo.
+  const distribution: {
+    admin: { user_id: string; nome: string; pin: string };
+    leaders: Array<{ user_id: string; slug: string; nome: string; pin: string }>;
+    generated_at: string;
+  } = {
+    admin: { user_id: '', nome: 'Administrador', pin: '' },
+    leaders: [],
+    generated_at: nowIso,
+  };
+
+  const adminPin = generateTempPin();
   const adminUser: User = {
     id: uuid(),
     nome: 'Administrador',
@@ -177,16 +193,18 @@ async function seedUsersAndLeaders() {
     updated_at: nowIso,
   };
   await db.users.add(adminUser);
+  distribution.admin = { user_id: adminUser.id, nome: adminUser.nome, pin: adminPin };
 
-  const leadersBatch: Array<{ user: User; leader: Leader }> = [];
+  const leadersBatch: Array<{ user: User; leader: Leader; pin: string }> = [];
   for (const nome of NOMES_LIDERES) {
     const slug = slugify(nome);
+    const pin = generateTempPin();
     const user: User = {
       id: uuid(),
       nome,
       slug,
       perfil: 'leader',
-      pin_hash: await hashPin('1234', slug),
+      pin_hash: await hashPin(pin, slug),
       pin_temporario: true,
       ativo: true,
       created_at: nowIso,
@@ -201,13 +219,26 @@ async function seedUsersAndLeaders() {
       created_at: nowIso,
       updated_at: nowIso,
     };
-    leadersBatch.push({ user, leader });
+    leadersBatch.push({ user, leader, pin });
   }
   await db.transaction('rw', db.users, db.leaders, async () => {
     for (const { user, leader } of leadersBatch) {
       await db.users.add(user);
       await db.leaders.add(leader);
     }
+  });
+  distribution.leaders = leadersBatch.map(({ user, pin }) => ({
+    user_id: user.id,
+    slug: user.slug,
+    nome: user.nome,
+    pin,
+  }));
+
+  await db.app_settings.add({
+    chave: 'initial_pins_bootstrap',
+    valor: JSON.stringify(distribution),
+    created_at: nowIso,
+    updated_at: nowIso,
   });
 }
 

@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/Button';
 import { Card, CardBody } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { isValidPinFormat } from '@/lib/pin';
+import { getAdminBootstrapPin } from '@/services/bootstrapPins';
 
 export function LoginScreen() {
   const nav = useNavigate();
@@ -23,6 +24,11 @@ export function LoginScreen() {
   const [showPin, setShowPin] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [adminBootstrap, setAdminBootstrap] = useState<{ nome: string; pin: string } | null>(null);
+
+  useEffect(() => {
+    getAdminBootstrapPin().then(setAdminBootstrap);
+  }, [users]);
 
   // Evita que um usuário logado caia na tela de login digitando /login manualmente.
   useEffect(() => {
@@ -74,6 +80,26 @@ export function LoginScreen() {
           </h1>
           <p className="text-white/60 text-xs">CBSI · Local & Offline</p>
         </div>
+
+        {adminBootstrap && (
+          <div className="mb-4 p-3 rounded-lg border border-amber-500/40 bg-amber-500/10 text-xs">
+            <div className="font-semibold text-amber-200 mb-1">
+              🔐 Primeira configuração deste dispositivo
+            </div>
+            <div className="text-white/80">
+              Entre como <strong>{adminBootstrap.nome}</strong> com o PIN:
+            </div>
+            <div className="mt-1 font-mono text-base tracking-widest text-amber-200">
+              {adminBootstrap.pin}
+            </div>
+            <div className="mt-1 text-white/60">
+              Depois acesse <em>Administração → Líderes</em> para distribuir os
+              PINs temporários dos líderes. Esta mensagem desaparece após a
+              primeira troca de PIN.
+            </div>
+          </div>
+        )}
+
         <Card>
           <CardBody>
             <form onSubmit={submit} className="flex flex-col gap-3" autoComplete="off">
@@ -145,10 +171,9 @@ export function LoginScreen() {
                 Entrar
               </Button>
               <div className="text-[11px] text-white/50 text-center mt-1 leading-relaxed">
-                PIN padrão líderes: <span className="font-mono">1234</span> · Admin:{' '}
-                <span className="font-mono">0000</span>
+                Troca obrigatória no primeiro acesso.
                 <br />
-                (Troca obrigatória no primeiro acesso)
+                Esqueceu o PIN? O administrador pode redefinir em Administração.
               </div>
             </form>
           </CardBody>

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '@/db/database';
 import { Button } from '@/components/ui/Button';
@@ -10,6 +10,11 @@ import { generateTempPin, hashPin } from '@/lib/pin';
 import { slugify } from '@/lib/slug';
 import { uuid } from '@/lib/uuid';
 import type { Leader, User } from '@/types';
+import {
+  clearInitialPinsBootstrap,
+  getInitialPinsBootstrap,
+  type InitialPinsBootstrap,
+} from '@/services/bootstrapPins';
 
 export function LeadersAdmin() {
   const session = useAuthStore(s => s.session)!;
@@ -18,8 +23,22 @@ export function LeadersAdmin() {
   const leaders = useLiveQuery(() => db.leaders.toArray(), []);
   const [resetFor, setResetFor] = useState<User | null>(null);
   const [lastPin, setLastPin] = useState<string | null>(null);
+  const [lastPinUser, setLastPinUser] = useState<string | null>(null);
   const [showNew, setShowNew] = useState(false);
   const [newNome, setNewNome] = useState('');
+  const [bootstrap, setBootstrap] = useState<InitialPinsBootstrap | null>(null);
+
+  useEffect(() => {
+    getInitialPinsBootstrap().then(setBootstrap);
+  }, []);
+
+  const refreshBootstrap = async () => setBootstrap(await getInitialPinsBootstrap());
+
+  const copy = (text: string) => {
+    navigator.clipboard?.writeText(text).catch(() => {
+      /* noop em iOS sem HTTPS */
+    });
+  };
 
   const toggleAtivo = async (user: User, leader?: Leader) => {
     const now = new Date().toISOString();
@@ -34,6 +53,8 @@ export function LeadersAdmin() {
     const newPin = generateTempPin();
     await resetPin(resetFor.id, newPin);
     setLastPin(newPin);
+    setLastPinUser(resetFor.nome);
+    setResetFor(null);
   };
 
   const handleCreate = async () => {
@@ -67,12 +88,78 @@ export function LeadersAdmin() {
       await db.leaders.add(leader);
     });
     setLastPin(tempPin);
+    setLastPinUser(user.nome);
     setNewNome('');
     setShowNew(false);
   };
 
+  const leaderPinsRemaining =
+    bootstrap?.leaders.filter(lp => {
+      const u = users?.find(x => x.id === lp.user_id);
+      return u && u.pin_temporario; // só mostra quem ainda não trocou
+    }) ?? [];
+
   return (
     <div className="flex flex-col gap-3">
+      {bootstrap && leaderPinsRemaining.length > 0 && (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <div className="text-sm font-semibold text-amber-200">
+                🔐 PINs iniciais — distribuir aos líderes
+              </div>
+              <div className="text-[11px] text-white/70 mt-1">
+                Gerados aleatoriamente no primeiro boot. Entregue individualmente
+                (fora do app) para cada líder. Cada líder trocará no primeiro
+                acesso. Esta tela some quando todos trocarem — ou você pode
+                limpar agora.
+              </div>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={async () => {
+                if (!confirm('Remover a lista de PINs iniciais do banco?')) return;
+                await clearInitialPinsBootstrap();
+                await refreshBootstrap();
+              }}
+            >
+              Já distribuí, limpar
+            </Button>
+          </div>
+          <div className="mt-2 overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead className="text-white/60">
+                <tr>
+                  <th className="text-left px-2 py-1">Líder</th>
+                  <th className="text-left px-2 py-1">PIN temporário</th>
+                  <th className="text-right px-2 py-1">Copiar</th>
+                </tr>
+              </thead>
+              <tbody>
+                {leaderPinsRemaining.map(lp => (
+                  <tr key={lp.user_id} className="border-t border-amber-500/20">
+                    <td className="px-2 py-1">{lp.nome}</td>
+                    <td className="px-2 py-1 font-mono tracking-widest text-amber-200">
+                      {lp.pin}
+                    </td>
+                    <td className="px-2 py-1 text-right">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => copy(`${lp.nome}: ${lp.pin}`)}
+                      >
+                        copiar
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold">
           Líderes e administradores ({users?.length ?? 0})
@@ -83,10 +170,22 @@ export function LeadersAdmin() {
       </div>
 
       {lastPin && (
-        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
-          PIN temporário gerado: <span className="font-mono font-bold">{lastPin}</span>
-          <div className="text-[11px] text-white/70">Informe ao usuário — a troca será obrigatória no próximo acesso.</div>
-          <Button variant="ghost" size="sm" className="mt-2" onClick={() => setLastPin(null)}>
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm flex items-center gap-3">
+          <div className="flex-1">
+            <div>
+              PIN temporário gerado{lastPinUser ? ` para ${lastPinUser}` : ''}:{' '}
+              <span className="font-mono font-bold tracking-widest text-amber-200">
+                {lastPin}
+              </span>
+            </div>
+            <div className="text-[11px] text-white/70">
+              Informe ao usuário — a troca é obrigatória no próximo acesso.
+            </div>
+          </div>
+          <Button size="sm" variant="ghost" onClick={() => copy(lastPin)}>
+            copiar
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => { setLastPin(null); setLastPinUser(null); }}>
             Ocultar
           </Button>
         </div>
